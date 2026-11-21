@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>若松バスナビ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* レイアウト：スマホ1カラム。上部に操作パネル、中央に「次のバス」カード、下に時刻表一覧 */
+:root{
+  --bg:#eef4f7; --surface:#ffffff; --ink:#13303d; --muted:#5d7682; --line:#d3e0e6;
+  --up:#2f63b4;      /* 鎌倉山発（若松→鎌倉駅）＝時刻表の青 */
+  --up-soft:#e3ecf9;
+  --down:#2f7a5b;    /* 鎌倉駅東口発（鎌倉駅→若松）＝時刻表の緑 */
+  --down-soft:#e1f1e9;
+  --warn:#9a5b00; --warn-soft:#fff3dc; --stop:#b3261e; --stop-soft:#fde7e5;
+  --font-body:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+  --font-num:"Space Grotesk","Zen Kaku Gothic New",system-ui,sans-serif;
+  --accent:var(--up); --accent-soft:var(--up-soft);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1a20; --surface:#14262e; --ink:#e4eef2; --muted:#93aab4; --line:#26404b;
+  --up:#7fa8ec; --up-soft:#1b2c45; --down:#6cc39b; --down-soft:#173328;
+  --warn:#f0b75a; --warn-soft:#3a2c12; --stop:#ff8a80; --stop-soft:#3d1c1a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1a20; --surface:#14262e; --ink:#e4eef2; --muted:#93aab4; --line:#26404b;
+  --up:#7fa8ec; --up-soft:#1b2c45; --down:#6cc39b; --down-soft:#173328;
+  --warn:#f0b75a; --warn-soft:#3a2c12; --stop:#ff8a80; --stop-soft:#3d1c1a; color-scheme:dark}
+body.dir-down{--accent:var(--down); --accent-soft:var(--down-soft)}
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--ink); font-family:var(--font-body); font-size:16px; line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px)); padding-right:max(16px,env(safe-area-inset-right,0px)); padding-block:20px 40px}
+.wrap{max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:18px}
+header h1{font-size:1.45rem; font-weight:900; margin:0; letter-spacing:.02em; text-wrap:balance}
+header p{margin:2px 0 0; color:var(--muted); font-size:.85rem}
+.label{font-size:.78rem; font-weight:700; color:var(--muted); letter-spacing:.08em; margin-bottom:6px}
+
+/* 行き先の切り替え */
+.dirs{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.dir{appearance:none; border:2px solid var(--line); background:var(--surface); color:var(--ink); border-radius:14px;
+  padding:12px 10px; text-align:left; cursor:pointer; font-family:inherit; display:flex; flex-direction:column; gap:2px; min-width:0}
+.dir .from{font-size:.8rem; color:var(--muted)}
+.dir .to{font-size:1.05rem; font-weight:900}
+.dir[aria-pressed="true"].up{border-color:var(--up); background:var(--up-soft)}
+.dir[aria-pressed="true"].down{border-color:var(--down); background:var(--down-soft)}
+.dir[aria-pressed="true"] .to::after{content:" ✓"}
+
+/* 曜日の切り替え */
+.seg{display:flex; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:4px; gap:4px}
+.seg button{flex:1; appearance:none; border:0; background:transparent; color:var(--ink); font-family:inherit; font-weight:700;
+  font-size:.92rem; padding:9px 4px; border-radius:9px; cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent); color:var(--surface)}
+.hint{font-size:.8rem; color:var(--muted); margin-top:6px}
+
+.when{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.field{display:flex; flex-direction:column; min-width:0}
+.field input{font-family:var(--font-num); font-size:1.15rem; font-weight:700; padding:10px 12px; border-radius:12px;
+  border:1px solid var(--line); background:var(--surface); color:var(--ink); width:100%; min-height:48px}
+.nowbtn{grid-column:1 / -1; appearance:none; border:1px dashed var(--accent); background:transparent; color:var(--accent);
+  font-family:inherit; font-weight:700; padding:10px; border-radius:12px; cursor:pointer; font-size:.95rem}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+
+/* お知らせ */
+.notice{border-radius:12px; padding:10px 14px; font-size:.88rem; font-weight:500}
+.notice.warn{background:var(--warn-soft); color:var(--warn)}
+.notice.stop{background:var(--stop-soft); color:var(--stop)}
+
+/* 次のバス */
+.next{background:var(--surface); border-radius:20px; padding:20px; border-top:6px solid var(--accent);
+  box-shadow:0 6px 24px rgba(19,48,61,.08); display:flex; flex-direction:column; gap:14px}
+.next .eyebrow{font-size:.8rem; font-weight:700; color:var(--accent); letter-spacing:.08em}
+.ride{display:grid; grid-template-columns:1fr auto 1fr; align-items:end; gap:8px}
+.ride .stop{font-size:.82rem; color:var(--muted); font-weight:700}
+.ride .t{font-family:var(--font-num); font-weight:700; font-size:2.6rem; line-height:1.05; font-variant-numeric:tabular-nums}
+.ride .arr{color:var(--muted); font-size:1.3rem; padding-bottom:8px}
+.ride .right{text-align:right}
+.ride .right .t{font-size:1.7rem; color:var(--muted)}
+.meta{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+.pill{display:inline-flex; align-items:center; gap:4px; font-size:.82rem; font-weight:700; padding:4px 10px;
+  border-radius:999px; background:var(--accent-soft); color:var(--accent)}
+.pill.big{font-size:1rem; padding:6px 14px; background:var(--accent); color:var(--surface)}
+.pill.kq{background:var(--warn-soft); color:var(--warn)}
+.empty{font-size:1.05rem; font-weight:700}
+.empty small{display:block; font-weight:400; color:var(--muted); font-size:.88rem; margin-top:4px}
+
+/* その後の便 */
+.list{display:flex; flex-direction:column; background:var(--surface); border-radius:16px; border:1px solid var(--line); overflow:hidden}
+.row{display:grid; grid-template-columns:4.5rem 1fr auto; gap:10px; align-items:center; padding:11px 16px; border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .t{font-family:var(--font-num); font-weight:700; font-size:1.2rem; font-variant-numeric:tabular-nums}
+.row .sub{font-size:.85rem; color:var(--muted); min-width:0}
+.row .after{font-size:.82rem; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
+.row.past{opacity:.5}
+.row.past .t{text-decoration:line-through}
+
+/* 時刻表 */
+details{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:4px 16px}
+summary{cursor:pointer; font-weight:700; padding:10px 0}
+.grid{display:grid; grid-template-columns:3rem 1fr; border-top:1px solid var(--line); margin-bottom:10px}
+.grid .h{font-family:var(--font-num); font-weight:700; color:var(--muted); padding:6px 0; border-bottom:1px solid var(--line)}
+.grid .m{display:flex; flex-wrap:wrap; gap:6px; padding:5px 0; border-bottom:1px solid var(--line); align-items:center}
+.chip{font-family:var(--font-num); font-weight:700; font-variant-numeric:tabular-nums; padding:2px 8px; border-radius:8px; background:var(--accent-soft); color:var(--ink)}
+.chip.is-next{background:var(--accent); color:var(--surface)}
+.chip.kq{background:var(--warn-soft); color:var(--warn); font-weight:500}
+.toggle{display:flex; gap:10px; align-items:flex-start; font-size:.9rem; cursor:pointer}
+.toggle input{width:20px; height:20px; margin-top:3px; accent-color:var(--accent)}
+footer{font-size:.78rem; color:var(--muted); line-height:1.7}
+footer .tel{font-family:var(--font-num); font-weight:700; color:var(--ink); user-select:all}
+@media (prefers-reduced-motion:no-preference){.next{transition:border-color .2s}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>若松バスナビ</h1>
+    <p>鎌倉山臨時運行バス ／ 若松 ⇄ 鎌倉駅東口</p>
+  </header>
+
+  <section aria-label="行き先">
+    <div class="label">どちらへ行きますか</div>
+    <div class="dirs">
+      <button class="dir up" id="dirUp" type="button" aria-pressed="true">
+        <span class="from">若松から</span><span class="to">鎌倉駅へ</span>
+      </button>
+      <button class="dir down" id="dirDown" type="button" aria-pressed="false">
+        <span class="from">鎌倉駅東口から</span><span class="to">若松へ</span>
+      </button>
+    </div>
+  </section>
+
+  <section aria-label="ダイヤ">
+    <div class="label">ダイヤ</div>
+    <div class="seg" id="daySeg">
+      <button type="button" data-day="auto" aria-pressed="true">日付で自動</button>
+      <button type="button" data-day="weekday" aria-pressed="false">平日</button>
+      <button type="button" data-day="holiday" aria-pressed="false">土日祝</button>
+    </div>
+    <div class="hint" id="dayHint"></div>
+  </section>
+
+  <section aria-label="出発日時">
+    <div class="label">出発したい日時</div>
+    <div class="when">
+      <label class="field"><span class="hint" style="margin:0 0 4px">日付</span><input type="date" id="dateIn"></label>
+      <label class="field"><span class="hint" style="margin:0 0 4px">時刻</span><input type="time" id="timeIn"></label>
+      <button class="nowbtn" id="nowBtn" type="button">いまの日時にもどす</button>
+    </div>
+  </section>
+
+  <div id="notices"></div>
+
+  <section class="next" id="nextCard" aria-live="polite"></section>
+
+  <section aria-label="その後の便">
+    <div class="label" id="laterLabel">そのあとの便</div>
+    <div class="list" id="laterList"></div>
+  </section>
+
+  <label class="toggle"><input type="checkbox" id="kqToggle">
+    <span>京急バスの便（平日のみ・参考）も表示する<br><small class="hint">鎌倉市の時刻表に「参考」として載っている便です。若松の時刻は目安なので、京急バスの時刻表でもご確認ください。</small></span>
+  </label>
+
+  <details id="tableBox">
+    <summary id="tableTitle">時刻表をすべて見る</summary>
+    <div class="grid" id="tableGrid"></div>
+  </details>
+
+  <footer>
+    運行期間：2026年12月1日〜2027年3月上旬（12月29日〜1月3日は運休）。道路状況により遅れる場合があります。<br>
+    問い合わせ：<span class="tel">080-6898-5256</span>（平日 9〜12時・13〜17時）／鎌倉市 交通計画課
+  </footer>
+</div>
+
+<script>
+// ===== 時刻表データ（鎌倉市の時刻表PDFより、若松のバス停の時刻を抜き出し） =====
+// up   = 鎌倉山発 → 鎌倉駅東口行き（若松発の時刻, 鎌倉駅着の時刻）
+// down = 鎌倉駅東口発 → 鎌倉山行き（鎌倉駅発の時刻, 若松着の時刻）
+const TIMETABLE = {
+  weekday: {
+    up: [["6:35","6:50"],["7:35","7:55"],["8:35","8:55"],["10:35","10:55"],["11:35","11:55"],
+         ["16:35","16:55"],["17:35","17:55"],["18:35","18:50"]],
+    down: [["7:00","7:15"],["8:00","8:15"],["11:00","11:18"],["12:00","12:18"],["17:00","17:18"],
+           ["18:00","18:18"],["19:00","19:15"],["21:30","21:45"]]
+  },
+  holiday: {
+    up: [["7:05","7:20"],["8:05","8:20"],["9:05","9:20"],["11:05","11:25"],["12:05","12:25"],["13:05","13:25"],
+         ["15:05","15:25"],["16:05","16:25"],["17:05","17:25"],["19:05","19:20"],["20:05","20:20"],["21:05","21:20"]],
+    down: [["7:30","7:45"],["8:30","8:45"],["9:30","9:45"],["11:30","11:48"],["12:30","12:48"],["13:30","13:48"],
+           ["15:30","15:48"],["16:30","16:48"],["17:30","17:48"],["19:30","19:48"],["20:30","20:45"],["21:30","21:45"]]
+  }
+};
+// 京急バス（参考・平日のみ）。時刻表に載っているのは始発停留所の発車時刻だけ
+const KEIKYU = {
+  up:   ["8:15","9:15","13:30","14:50"],   // 鎌倉山発（若松は約5分後の目安）
+  down: ["7:45","8:45","13:00","14:20"]    // 鎌倉駅発
+};
+// 運行期間中の祝日（土日祝ダイヤになる日）
+const HOLIDAYS = ["2027-01-11","2027-02-11","2027-02-23","2027-03-22"];
+const SERVICE_START = "2026-12-01", SERVICE_END_APPROX = "2027-03-10";
+const isSuspended = d => (d >= "2026-12-29" && d <= "2027-01-03");
+
+// ===== 便利関数 =====
+const toMin = s => { const [h,m] = s.split(":").map(Number); return h*60+m; };
+const fmt = m => `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`;
+const pad = n => String(n).padStart(2,"0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const WEEK = ["日","月","火","水","木","金","土"];
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+};
+
+// ===== 状態 =====
+const state = {
+  dir: store.get("wk_dir") === "down" ? "down" : "up",
+  day: "auto",
+  live: true,           // true のあいだは現在時刻に追従
+  keikyu: store.get("wk_kq") === "1"
+};
+const $ = id => document.getElementById(id);
+const dateIn = $("dateIn"), timeIn = $("timeIn");
+
+function setNow(){
+  const n = new Date();
+  dateIn.value = ymd(n);
+  timeIn.value = `${pad(n.getHours())}:${pad(n.getMinutes())}`;
+  state.live = true;
+}
+
+function dayTypeOf(dateStr){
+  const d = new Date(dateStr + "T12:00:00");
+  const w = d.getDay();
+  if (w === 0 || w === 6 || HOLIDAYS.includes(dateStr)) return "holiday";
+  return "weekday";
+}
+
+// 選んだ条件でのバス一覧（出発時刻順）
+function buildTrips(dayType, dir){
+  const trips = TIMETABLE[dayType][dir].map(([dep,arr]) => ({
+    dep: toMin(dep), arr: toMin(arr), kq:false
+  }));
+  if (state.keikyu && dayType === "weekday"){
+    KEIKYU[dir].forEach(t => {
+      const base = toMin(t);
+      trips.push(dir === "up"
+        ? { dep: base+5, arr: null, kq:true, origin: t }      // 若松は目安
+        : { dep: base, arr: null, kq:true });
+    });
+  }
+  return trips.sort((a,b) => a.dep - b.dep);
+}
+
+function render(){
+  const dir = state.dir;
+  document.body.classList.toggle("dir-down", dir === "down");
+  $("dirUp").setAttribute("aria-pressed", dir === "up");
+  $("dirDown").setAttribute("aria-pressed", dir === "down");
+  document.querySelectorAll("#daySeg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.day === state.day));
+
+  const dateStr = dateIn.value || ymd(new Date());
+  const d = new Date(dateStr + "T12:00:00");
+  const autoType = dayTypeOf(dateStr);
+  const dayType = state.day === "auto" ? autoType : state.day;
+  const dayName = dayType === "weekday" ? "平日ダイヤ" : "土日祝ダイヤ";
+  $("dayHint").textContent = state.day === "auto"
+    ? `${d.getMonth()+1}月${d.getDate()}日（${WEEK[d.getDay()]}）は「${autoType === "weekday" ? "平日" : "土日祝"}」ダイヤです`
+    : `${dayName}で表示しています`;
+
+  // お知らせ
+  const notes = [];
+  if (isSuspended(dateStr)) notes.push(["stop","この日は年末年始のため運休です（12月29日〜1月3日）。下の時刻は参考としてご覧ください。"]);
+  else if (dateStr < SERVICE_START) notes.push(["warn","運行は2026年12月1日からです。いまは運行開始前なので、時刻は参考としてご覧ください。"]);
+  else if (dateStr > SERVICE_END_APPROX) notes.push(["warn","運行は3月上旬までの予定です。運行しているか、鎌倉市のお知らせもご確認ください。"]);
+  $("notices").innerHTML = notes.map(([c,t]) => `<div class="notice ${c}">${t}</div>`).join("");
+
+  const fromName = dir === "up" ? "若松" : "鎌倉駅東口";
+  const toName   = dir === "up" ? "鎌倉駅" : "若松";
+  const trips = buildTrips(dayType, dir);
+  const [hh,mm] = (timeIn.value || "00:00").split(":").map(Number);
+  const want = hh*60+mm;
+  const idx = trips.findIndex(t => t.dep >= want);
+  const nextTrip = idx >= 0 ? trips[idx] : null;
+
+  // 次のバス
+  const card = $("nextCard");
+  if (nextTrip){
+    const wait = nextTrip.dep - want;
+    const waitText = wait === 0 ? "ちょうど発車時刻" : wait < 60 ? `あと ${wait} 分` : `あと ${Math.floor(wait/60)} 時間 ${wait%60} 分`;
+    const arrHtml = nextTrip.arr != null
+      ? `<div class="t">${fmt(nextTrip.arr)}</div>`
+      : `<div class="t" style="font-size:1rem">時刻は<br>京急で確認</div>`;
+    card.innerHTML = `
+      <div class="eyebrow">${state.live ? "いちばん近いバス" : `${fmt(want)} 以降でいちばん近いバス`}</div>
+      <div class="ride">
+        <div><div class="stop">${fromName} 発</div><div class="t">${nextTrip.kq && dir==="up" ? "約" : ""}${fmt(nextTrip.dep)}</div></div>
+        <div class="arr" aria-hidden="true">→</div>
+        <div class="right"><div class="stop">${toName} 着</div>${arrHtml}</div>
+      </div>
+      <div class="meta">
+        <span class="pill big">${waitText}</span>
+        ${nextTrip.arr != null ? `<span class="pill">乗車 ${nextTrip.arr - nextTrip.dep} 分</span>` : ""}
+        <span class="pill">${dayName}</span>
+        ${nextTrip.kq ? `<span class="pill kq">京急バス（参考）${nextTrip.origin ? "・鎌倉山 " + nextTrip.origin + " 発" : ""}</span>` : ""}
+      </div>`;
+  } else {
+    const first = trips[0];
+    card.innerHTML = `
+      <div class="eyebrow">いちばん近いバス</div>
+      <div class="empty">${fmt(want)} 以降の便はもうありません 🌙
+        <small>最終は ${fmt(trips[trips.length-1].dep)} 発でした。${dayName}の始発は ${fmt(first.dep)} 発です（翌日のダイヤは日付を変えて確認できます）。</small>
+      </div>`;
+  }
+
+  // 直前の便＋そのあとの便
+  const rows = [];
+  if (idx !== 0){
+    const prev = trips[(idx >= 0 ? idx : trips.length) - 1];
+    if (prev) rows.push({t:prev, past:true});
+  }
+  if (idx >= 0) trips.slice(idx+1, idx+4).forEach(t => rows.push({t, past:false}));
+  $("laterLabel").textContent = `${fromName} → ${toName}　前後の便`;
+  $("laterList").innerHTML = rows.length ? rows.map(({t,past}) => {
+    const diff = t.dep - want;
+    const sub = t.kq ? (dir==="up" ? `京急（参考）鎌倉山 ${t.origin} 発` : "京急（参考）")
+                     : `${toName} ${fmt(t.arr)} 着`;
+    const after = past ? "出発済み" : (diff < 60 ? `${diff}分後` : `${Math.floor(diff/60)}時間${diff%60}分後`);
+    return `<div class="row ${past ? "past" : ""}"><div class="t">${t.kq && dir==="up" ? "約" : ""}${fmt(t.dep)}</div><div class="sub">${sub}</div><div class="after">${after}</div></div>`;
+  }).join("") : `<div class="row"><div class="sub" style="grid-column:1/-1">ほかに表示できる便はありません</div></div>`;
+
+  // 時刻表（時ごと）
+  $("tableTitle").textContent = `${fromName} 発の時刻表をすべて見る（${dayName}）`;
+  const byHour = {};
+  trips.forEach(t => { const h = Math.floor(t.dep/60); (byHour[h] = byHour[h] || []).push(t); });
+  let g = "";
+  for (let h = 6; h <= 21; h++){
+    const list = byHour[h] || [];
+    g += `<div class="h">${h}</div><div class="m">${list.length ? list.map(t =>
+      `<span class="chip ${t === nextTrip ? "is-next" : ""} ${t.kq ? "kq" : ""}">${t.kq && dir==="up" ? "約" : ""}${pad(t.dep%60)}${t.kq ? " 京急" : ""}</span>`
+    ).join("") : `<span class="hint" style="margin:0">—</span>`}</div>`;
+  }
+  $("tableGrid").innerHTML = g;
+}
+
+// ===== 操作 =====
+$("dirUp").onclick = () => { state.dir = "up"; store.set("wk_dir","up"); render(); };
+$("dirDown").onclick = () => { state.dir = "down"; store.set("wk_dir","down"); render(); };
+document.querySelectorAll("#daySeg button").forEach(b => b.onclick = () => { state.day = b.dataset.day; render(); });
+dateIn.addEventListener("input", () => { state.live = false; render(); });
+timeIn.addEventListener("input", () => { state.live = false; render(); });
+$("nowBtn").onclick = () => { setNow(); render(); };
+$("kqToggle").checked = state.keikyu;
+$("kqToggle").onchange = e => { state.keikyu = e.target.checked; store.set("wk_kq", state.keikyu ? "1" : "0"); render(); };
+
+// 「いま」モードのときは30秒ごとに時刻を更新
+setInterval(() => { if (state.live){ setNow(); render(); } }, 30000);
+setNow();
+render();
+</script>
+</body>
+</html>
